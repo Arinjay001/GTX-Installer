@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-GTX_VERSION="1.1.1"
+GTX_VERSION="2.0.0"
 GTX_REPO_DEFAULT="https://github.com/Arinjay001/GTX-panel.git"
 GTX_INSTALL_DIR_DEFAULT="/var/www/gtx-panel"
 GTX_SERVICE="gtx-panel"
@@ -13,7 +13,6 @@ GTX_INSTALL_DIR="$GTX_INSTALL_DIR_DEFAULT"
 GTX_PANEL_REPO="$GTX_REPO_DEFAULT"
 GTX_PANEL_PORT="$GTX_PORT_DEFAULT"
 GTX_SSL_MODE="nginx"
-GTX_DB_MODE="sqlite"
 GTX_PRIVATE_REPO="no"
 GTX_GITHUB_TOKEN=""
 GTX_LICENSE_SERVER_URL=""
@@ -37,7 +36,7 @@ green(){ echo -e "${GREEN}$1${NC}"; }
 yellow(){ echo -e "${YELLOW}$1${NC}"; }
 cyan(){ echo -e "${CYAN}$1${NC}"; }
 bold(){ echo -e "${BOLD}$1${NC}"; }
-line(){ echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"; }
+line(){ echo -e "${CYAN}────────────────────────────────────────────${NC}"; }
 
 on_error() {
 red "Installation failed at line $1"
@@ -55,7 +54,7 @@ cyan " | |  _  | |  \  /  | |*) / *` | '* \ / _ \ |"
 cyan " | |*| | | |  /  \  |  __/ (*| | | | |  **/ |"
 cyan "  \****| |*| /*/\*\ |*|   \**,*|*| |*|\***|_|"
 echo
-bold "              GTX Panel Installer v$GTX_VERSION"
+bold "        GTX Panel Installer v$GTX_VERSION"
 line
 }
 
@@ -96,16 +95,14 @@ fi
 check_os() {
 logo
 if [[ ! -f /etc/os-release ]]; then
-red "Unsupported OS."
+red "Unsupported OS"
 exit 1
 fi
-
 source /etc/os-release
 echo "Detected: $PRETTY_NAME"
-
 case "$ID" in
-ubuntu|debian) green "OS supported." ;;
-*) red "Only Ubuntu/Debian supported."; exit 1 ;;
+ubuntu|debian) green "OS supported" ;;
+*) red "Only Ubuntu/Debian supported"; exit 1 ;;
 esac
 }
 
@@ -123,55 +120,43 @@ line
 }
 
 preflight_checks() {
-bold "Running preflight checks"
+bold "Running checks"
 line
-
 local ram_mb disk_gb
 ram_mb=$(free -m | awk '/Mem:/ {print $2}')
 disk_gb=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
-
-if (( ram_mb < 900 )); then yellow "RAM low. Recommended 2GB+."; else green "RAM OK."; fi
-if (( disk_gb < 5 )); then red "Need at least 5GB free disk."; exit 1; else green "Disk OK."; fi
-command -v systemctl >/dev/null 2>&1 || { red "systemd not found."; exit 1; }
-
-green "Preflight complete."
+if (( ram_mb < 900 )); then yellow "RAM low, recommended 2GB+"; else green "RAM OK"; fi
+if (( disk_gb < 5 )); then red "Need at least 5GB free disk"; exit 1; else green "Disk OK"; fi
+command -v systemctl >/dev/null 2>&1 || { red "systemd not found"; exit 1; }
 }
 
 install_base_packages() {
 logo
 bold "Installing base packages"
 line
-
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl wget git unzip zip tar ca-certificates gnupg lsb-release software-properties-common 
-build-essential python3 make g++ nano openssl ufw jq nginx redis-server
-
+apt-get install -y curl wget git unzip zip tar ca-certificates gnupg lsb-release software-properties-common build-essential python3 make g++ nano openssl ufw jq nginx redis-server
 systemctl enable --now redis-server || true
 systemctl enable --now nginx || true
-
-green "Base packages installed."
 }
 
 install_nodejs() {
 logo
 bold "Installing Node.js 22"
 line
-
 if command -v node >/dev/null 2>&1; then
 local major
 major=$(node -v | sed 's/v//' | cut -d. -f1)
 if (( major >= 22 )); then
-green "Node.js $(node -v) already installed."
+green "Node.js $(node -v) already installed"
 npm install -g npm@11 || true
 return 0
 fi
 fi
-
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
 npm install -g npm@11 || true
-
 node -v
 npm -v
 }
@@ -180,23 +165,19 @@ install_docker() {
 logo
 bold "Installing Docker"
 line
-
 if command -v docker >/dev/null 2>&1; then
-green "Docker already installed."
+green "Docker already installed"
 systemctl enable --now docker || true
 return 0
 fi
-
 apt-get install -y docker.io docker-compose docker-compose-v2 || apt-get install -y docker.io docker-compose
 systemctl enable --now docker
-docker --version || true
 }
 
 collect_install_details() {
 logo
 bold "GTX Panel configuration"
 line
-
 GTX_INSTALL_DIR=$(ask "Install directory" "$GTX_INSTALL_DIR_DEFAULT")
 GTX_PANEL_REPO=$(ask "GTX Panel repository" "$GTX_REPO_DEFAULT")
 GTX_PANEL_PORT=$(ask "Panel internal port" "$GTX_PORT_DEFAULT")
@@ -206,7 +187,7 @@ GTX_ADMIN_EMAIL=$(ask "Admin email" "[admin@gtxpanel.local](mailto:admin@gtxpane
 while [[ -z "$GTX_ADMIN_PASSWORD" ]]; do
 GTX_ADMIN_PASSWORD=$(ask_secret "Admin password")
 if [[ ${#GTX_ADMIN_PASSWORD} -lt 8 ]]; then
-red "Password must be at least 8 characters."
+red "Password must be at least 8 characters"
 GTX_ADMIN_PASSWORD=""
 fi
 done
@@ -237,7 +218,6 @@ clone_panel() {
 logo
 bold "Downloading GTX Panel"
 line
-
 mkdir -p "$(dirname "$GTX_INSTALL_DIR")"
 
 if [[ -e "$GTX_INSTALL_DIR" ]]; then
@@ -247,20 +227,18 @@ mv "$GTX_INSTALL_DIR" "$backup"
 fi
 
 if [[ "$GTX_PRIVATE_REPO" == "yes" ]]; then
+local clean_url
 clean_url="${GTX_PANEL_REPO#https://}"
 git clone "https://${GTX_GITHUB_TOKEN}@${clean_url}" "$GTX_INSTALL_DIR"
 else
 git clone "$GTX_PANEL_REPO" "$GTX_INSTALL_DIR"
 fi
-
-green "GTX Panel downloaded."
 }
 
 write_env_files() {
 logo
 bold "Writing environment files"
 line
-
 local app_url="http://$GTX_PANEL_DOMAIN"
 if [[ "$GTX_SSL_MODE" == "letsencrypt" ]]; then
 app_url="https://$GTX_PANEL_DOMAIN"
@@ -300,9 +278,6 @@ VITE_API_URL="$app_url"
 VITE_LICENSE_REQUIRED="true"
 EOF
 fi
-
-chmod 600 "$GTX_INSTALL_DIR/.env" || true
-chmod 600 "$GTX_INSTALL_DIR/server/.env" 2>/dev/null || true
 }
 
 npm_clean_install_here() {
@@ -316,7 +291,6 @@ install_panel_dependencies() {
 logo
 bold "Installing project dependencies"
 line
-
 cd "$GTX_INSTALL_DIR"
 [[ -f package.json ]] && npm_clean_install_here
 
@@ -335,7 +309,6 @@ run_database_tasks() {
 logo
 bold "Running database tasks"
 line
-
 if [[ -d "$GTX_INSTALL_DIR/server" ]]; then
 cd "$GTX_INSTALL_DIR/server"
 if [[ -f prisma/schema.prisma ]]; then
@@ -350,15 +323,13 @@ build_panel() {
 logo
 bold "Building GTX Panel"
 line
-
 if [[ -d "$GTX_INSTALL_DIR/client" ]]; then
 cd "$GTX_INSTALL_DIR/client"
-npm run build || yellow "Client build failed, continuing."
+npm run build || yellow "Client build failed, continuing"
 fi
-
 if [[ -d "$GTX_INSTALL_DIR/server" ]]; then
 cd "$GTX_INSTALL_DIR/server"
-npm run build || yellow "Server build failed, continuing."
+npm run build || yellow "Server build failed, continuing"
 fi
 }
 
@@ -366,7 +337,6 @@ create_service() {
 logo
 bold "Creating systemd service"
 line
-
 cat > "/etc/systemd/system/$GTX_SERVICE.service" <<EOF
 [Unit]
 Description=GTX Panel
@@ -404,7 +374,6 @@ fi
 logo
 bold "Configuring Nginx"
 line
-
 cat > /etc/nginx/sites-available/gtx-panel <<EOF
 server {
 listen 80;
@@ -431,7 +400,6 @@ EOF
 
 ln -sf /etc/nginx/sites-available/gtx-panel /etc/nginx/sites-enabled/gtx-panel
 rm -f /etc/nginx/sites-enabled/default
-
 nginx -t
 systemctl reload nginx
 }
@@ -440,25 +408,21 @@ setup_ssl() {
 if [[ "$GTX_SSL_MODE" != "letsencrypt" ]]; then
 return 0
 fi
-
 logo
 bold "Installing SSL"
 line
-
 apt-get install -y certbot python3-certbot-nginx
-certbot --nginx -d "$GTX_PANEL_DOMAIN" --non-interactive --agree-tos -m "$GTX_ADMIN_EMAIL" --redirect || yellow "SSL failed."
+certbot --nginx -d "$GTX_PANEL_DOMAIN" --non-interactive --agree-tos -m "$GTX_ADMIN_EMAIL" --redirect || yellow "SSL failed"
 }
 
 setup_firewall() {
 logo
 bold "Firewall setup"
 line
-
 ufw allow OpenSSH || true
 ufw allow 80/tcp || true
 ufw allow 443/tcp || true
 ufw allow "$GTX_PANEL_PORT/tcp" || true
-
 if confirm "Enable UFW firewall now?"; then
 ufw --force enable
 fi
@@ -466,14 +430,12 @@ fi
 
 finish_screen() {
 logo
-green "GTX Panel installation completed!"
+green "GTX Panel installation completed"
 line
-
 local url="http://$GTX_PANEL_DOMAIN"
 if [[ "$GTX_SSL_MODE" == "letsencrypt" ]]; then
 url="https://$GTX_PANEL_DOMAIN"
 fi
-
 echo "Panel URL: $url"
 echo "Internal Port: $GTX_PANEL_PORT"
 echo "Install Dir: $GTX_INSTALL_DIR"
@@ -481,7 +443,7 @@ echo "Service: $GTX_SERVICE"
 echo "Log File: $GTX_LOG_FILE"
 echo
 yellow "License Activation Required"
-echo "Open the panel. It should redirect to /activate-license"
+echo "Open panel. It should redirect to /activate-license"
 echo
 echo "Commands:"
 echo "systemctl status $GTX_SERVICE"
@@ -520,7 +482,9 @@ ss -tulpn | grep -E ":80|:443|:$GTX_PANEL_PORT" || true
 uninstall_panel() {
 require_root
 logo
-if ! confirm "Remove GTX Panel?"; then exit 0; fi
+if ! confirm "Remove GTX Panel?"; then
+exit 0
+fi
 systemctl stop "$GTX_SERVICE" 2>/dev/null || true
 systemctl disable "$GTX_SERVICE" 2>/dev/null || true
 rm -f "/etc/systemd/system/$GTX_SERVICE.service"
@@ -528,7 +492,7 @@ rm -f /etc/nginx/sites-enabled/gtx-panel /etc/nginx/sites-available/gtx-panel
 systemctl daemon-reload
 systemctl reload nginx 2>/dev/null || true
 mv "$GTX_INSTALL_DIR_DEFAULT" "${GTX_INSTALL_DIR_DEFAULT}.removed.$(date +%s)" 2>/dev/null || true
-green "Uninstalled."
+green "Uninstalled"
 }
 
 menu() {

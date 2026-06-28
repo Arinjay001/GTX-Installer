@@ -1,13 +1,7 @@
-```bash
 #!/usr/bin/env bash
-# GTX Panel Professional Installer
-# Run:
-# bash <(curl -fsSL https://raw.githubusercontent.com/Arinjay001/GTX-Installer/main/install.sh)
-
 set -Eeuo pipefail
 
-GTX_VERSION="1.1.0"
-GTX_BRAND="GTX Panel"
+GTX_VERSION="1.1.1"
 GTX_REPO_DEFAULT="https://github.com/Arinjay001/GTX-panel.git"
 GTX_INSTALL_DIR_DEFAULT="/var/www/gtx-panel"
 GTX_SERVICE="gtx-panel"
@@ -15,22 +9,17 @@ GTX_PORT_DEFAULT="3000"
 GTX_LOG_DIR="/var/log/gtx-installer"
 GTX_LOG_FILE="$GTX_LOG_DIR/install-$(date +%Y%m%d-%H%M%S).log"
 
-GTX_OS_ID=""
-GTX_OS_VERSION=""
-GTX_PANEL_DOMAIN=""
-GTX_ADMIN_EMAIL=""
-GTX_ADMIN_PASSWORD=""
 GTX_INSTALL_DIR="$GTX_INSTALL_DIR_DEFAULT"
 GTX_PANEL_REPO="$GTX_REPO_DEFAULT"
 GTX_PANEL_PORT="$GTX_PORT_DEFAULT"
-GTX_SSL_MODE="none"
+GTX_SSL_MODE="nginx"
 GTX_DB_MODE="sqlite"
-GTX_RUN_NPM_BUILD="yes"
 GTX_PRIVATE_REPO="no"
 GTX_GITHUB_TOKEN=""
 GTX_LICENSE_SERVER_URL=""
 GTX_PUBLIC_IP=""
-GTX_NONINTERACTIVE="no"
+GTX_ADMIN_EMAIL=""
+GTX_ADMIN_PASSWORD=""
 
 mkdir -p "$GTX_LOG_DIR"
 touch "$GTX_LOG_FILE"
@@ -39,382 +28,245 @@ exec > >(tee -a "$GTX_LOG_FILE") 2>&1
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-echo_c() { echo -e "$1$2${NC}"; }
-red() { echo_c "$RED" "$1"; }
-green() { echo_c "$GREEN" "$1"; }
-yellow() { echo_c "$YELLOW" "$1"; }
-blue() { echo_c "$BLUE" "$1"; }
-cyan() { echo_c "$CYAN" "$1"; }
-magenta() { echo_c "$MAGENTA" "$1"; }
-bold() { echo_c "$BOLD" "$1"; }
-
-line() { echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"; }
+red(){ echo -e "${RED}$1${NC}"; }
+green(){ echo -e "${GREEN}$1${NC}"; }
+yellow(){ echo -e "${YELLOW}$1${NC}"; }
+cyan(){ echo -e "${CYAN}$1${NC}"; }
+bold(){ echo -e "${BOLD}$1${NC}"; }
+line(){ echo -e "${CYAN}────────────────────────────────────────────────────────────${NC}"; }
 
 on_error() {
-  local line_no="$1"
-  local cmd="$2"
-  echo ""
-  red "Installation failed at line $line_no"
-  yellow "Command: $cmd"
-  yellow "Log file: $GTX_LOG_FILE"
-  echo ""
-  exit 1
+red "Installation failed at line $1"
+yellow "Command: $2"
+yellow "Log file: $GTX_LOG_FILE"
+exit 1
 }
-
 trap 'on_error $LINENO "$BASH_COMMAND"' ERR
 
 logo() {
-  clear || true
-  echo -e "${CYAN}"
-  cat <<'ASCII'
-   ____ _______  __  _____                  _
-  / ___|_   _\ \/ / |  _ \ __ _ _ __   ___| |
- | |  _  | |  \  /  | |_) / _` | '_ \ / _ \ |
- | |_| | | |  /  \  |  __/ (_| | | | |  __/ |
-  \____| |_| /_/\_\ |_|   \__,_|_| |_|\___|_|
-ASCII
-  echo -e "${NC}"
-  bold "              Premium Hosting Control Panel Installer"
-  cyan "                         Version $GTX_VERSION"
-  line
-}
-
-pause() {
-  if [[ "$GTX_NONINTERACTIVE" == "yes" ]]; then
-    return 0
-  fi
-  echo ""
-  read -rp "Press Enter to continue..." _
+clear || true
+cyan "   ____ _______  __  _____                  *"
+cyan "  / __*|*   *\ \/ / |  _ \ __ _ _ __   __*| |"
+cyan " | |  _  | |  \  /  | |*) / *` | '* \ / _ \ |"
+cyan " | |*| | | |  /  \  |  __/ (*| | | | |  **/ |"
+cyan "  \****| |*| /*/\*\ |*|   \**,*|*| |*|\***|_|"
+echo
+bold "              GTX Panel Installer v$GTX_VERSION"
+line
 }
 
 ask() {
-  local prompt="$1"
-  local default="${2:-}"
-  local var
-  if [[ -n "$default" ]]; then
-    read -rp "$prompt [$default]: " var
-    echo "${var:-$default}"
-  else
-    read -rp "$prompt: " var
-    echo "$var"
-  fi
+local prompt="$1"
+local default="${2:-}"
+local var
+if [[ -n "$default" ]]; then
+read -rp "$prompt [$default]: " var
+echo "${var:-$default}"
+else
+read -rp "$prompt: " var
+echo "$var"
+fi
 }
 
 ask_secret() {
-  local prompt="$1"
-  local var
-  read -rsp "$prompt: " var
-  echo "" >&2
-  echo "$var"
+local prompt="$1"
+local var
+read -rsp "$prompt: " var
+echo >&2
+echo "$var"
 }
 
 confirm() {
-  local prompt="$1"
-  local ans
-  read -rp "$prompt [y/N]: " ans
-  [[ "$ans" =~ ^[Yy]$ ]]
+local ans
+read -rp "$1 [y/N]: " ans
+[[ "$ans" =~ ^[Yy]$ ]]
 }
 
 require_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    red "Please run as root. Use: sudo su"
-    exit 1
-  fi
-}
-
-load_os() {
-  if [[ ! -f /etc/os-release ]]; then
-    red "Unsupported operating system: /etc/os-release not found."
-    exit 1
-  fi
-
-  source /etc/os-release
-  GTX_OS_ID="$ID"
-  GTX_OS_VERSION="$VERSION_ID"
+if [[ "$EUID" -ne 0 ]]; then
+red "Run as root: sudo su"
+exit 1
+fi
 }
 
 check_os() {
-  logo
-  load_os
-  bold "Checking operating system..."
-  echo "Detected: $PRETTY_NAME"
+logo
+if [[ ! -f /etc/os-release ]]; then
+red "Unsupported OS."
+exit 1
+fi
 
-  case "$GTX_OS_ID" in
-    ubuntu)
-      case "$GTX_OS_VERSION" in
-        20.04|22.04|24.04|26.04)
-          green "Ubuntu $GTX_OS_VERSION supported."
-          ;;
-        *)
-          yellow "Ubuntu version not officially tested, continuing anyway."
-          ;;
-      esac
-      ;;
-    debian)
-      case "$GTX_OS_VERSION" in
-        11|12|13)
-          green "Debian $GTX_OS_VERSION supported."
-          ;;
-        *)
-          yellow "Debian version not officially tested, continuing anyway."
-          ;;
-      esac
-      ;;
-    *)
-      red "Only Ubuntu/Debian are supported."
-      exit 1
-      ;;
-  esac
+source /etc/os-release
+echo "Detected: $PRETTY_NAME"
+
+case "$ID" in
+ubuntu|debian) green "OS supported." ;;
+*) red "Only Ubuntu/Debian supported."; exit 1 ;;
+esac
 }
 
 system_report() {
-  logo
-  bold "System report"
-  line
-  echo "OS:        $(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')"
-  echo "Kernel:    $(uname -r)"
-  echo "CPU Cores: $(nproc)"
-  echo "RAM:       $(free -h | awk '/Mem:/ {print $2}')"
-  echo "Disk:      $(df -h / | awk 'NR==2 {print $4 " free / " $2 " total"}')"
-
-  GTX_PUBLIC_IP=$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || echo "unknown")
-  echo "Public IP: $GTX_PUBLIC_IP"
-  line
-  pause
+logo
+bold "System report"
+line
+echo "OS: $(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')"
+echo "CPU: $(nproc) cores"
+echo "RAM: $(free -h | awk '/Mem:/ {print $2}')"
+echo "Disk: $(df -h / | awk 'NR==2 {print $4 " free / " $2 " total"}')"
+GTX_PUBLIC_IP=$(curl -fsSL --max-time 5 https://ifconfig.me 2>/dev/null || echo "127.0.0.1")
+echo "Public IP: $GTX_PUBLIC_IP"
+line
 }
 
 preflight_checks() {
-  logo
-  bold "Running preflight checks"
-  line
+bold "Running preflight checks"
+line
 
-  local ram_mb disk_gb
-  ram_mb=$(free -m | awk '/Mem:/ {print $2}')
-  disk_gb=$(df -BG / | awk 'NR==2 {gsub("G", "", $4); print $4}')
+local ram_mb disk_gb
+ram_mb=$(free -m | awk '/Mem:/ {print $2}')
+disk_gb=$(df -BG / | awk 'NR==2 {gsub("G","",$4); print $4}')
 
-  if (( ram_mb < 1024 )); then
-    yellow "RAM is under 1GB. GTX Panel may be slow."
-  else
-    green "RAM check OK."
-  fi
+if (( ram_mb < 900 )); then yellow "RAM low. Recommended 2GB+."; else green "RAM OK."; fi
+if (( disk_gb < 5 )); then red "Need at least 5GB free disk."; exit 1; else green "Disk OK."; fi
+command -v systemctl >/dev/null 2>&1 || { red "systemd not found."; exit 1; }
 
-  if (( disk_gb < 5 )); then
-    red "Need at least 5GB free disk."
-    exit 1
-  else
-    green "Disk check OK."
-  fi
-
-  if command -v systemctl >/dev/null 2>&1; then
-    green "systemd found."
-  else
-    red "systemd not found."
-    exit 1
-  fi
-
-  if ping -c 1 github.com >/dev/null 2>&1; then
-    green "Internet OK."
-  else
-    yellow "Ping failed; continuing because curl may still work."
-  fi
-
-  pause
-}
-
-apt_update() {
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
+green "Preflight complete."
 }
 
 install_base_packages() {
-  logo
-  bold "Installing base packages"
-  line
+logo
+bold "Installing base packages"
+line
 
-  apt_update
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y curl wget git unzip zip tar ca-certificates gnupg lsb-release software-properties-common 
+build-essential python3 make g++ nano openssl ufw jq nginx redis-server
 
-  DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    curl wget git unzip zip tar ca-certificates gnupg lsb-release software-properties-common \
-    build-essential python3 make g++ nano openssl ufw jq nginx redis-server
+systemctl enable --now redis-server || true
+systemctl enable --now nginx || true
 
-  systemctl enable --now redis-server || true
-  systemctl enable --now nginx || true
-
-  green "Base packages installed."
+green "Base packages installed."
 }
 
 install_nodejs() {
-  logo
-  bold "Installing Node.js 22"
-  line
+logo
+bold "Installing Node.js 22"
+line
 
-  if command -v node >/dev/null 2>&1; then
-    local major
-    major=$(node -v | sed 's/v//' | cut -d. -f1)
+if command -v node >/dev/null 2>&1; then
+local major
+major=$(node -v | sed 's/v//' | cut -d. -f1)
+if (( major >= 22 )); then
+green "Node.js $(node -v) already installed."
+npm install -g npm@11 || true
+return 0
+fi
+fi
 
-    if (( major >= 22 )); then
-      green "Node.js $(node -v) already installed."
-      npm install -g npm@11 || true
-      node -v
-      npm -v
-      return 0
-    fi
-  fi
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y nodejs
+npm install -g npm@11 || true
 
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
-
-  npm install -g npm@11 || true
-
-  node -v
-  npm -v
+node -v
+npm -v
 }
 
 install_docker() {
-  logo
-  bold "Installing Docker"
-  line
+logo
+bold "Installing Docker"
+line
 
-  if command -v docker >/dev/null 2>&1; then
-    green "Docker already installed."
-    systemctl enable --now docker || true
-    return 0
-  fi
+if command -v docker >/dev/null 2>&1; then
+green "Docker already installed."
+systemctl enable --now docker || true
+return 0
+fi
 
-  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose docker-compose-v2 \
-    || DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose
-
-  systemctl enable --now docker
-  docker --version || true
-}
-
-setup_firewall() {
-  logo
-  bold "Firewall setup"
-  line
-
-  if ! command -v ufw >/dev/null 2>&1; then
-    yellow "UFW not installed, skipping."
-    return 0
-  fi
-
-  ufw allow OpenSSH || true
-  ufw allow 80/tcp || true
-  ufw allow 443/tcp || true
-  ufw allow "$GTX_PANEL_PORT/tcp" || true
-
-  if confirm "Enable UFW firewall now?"; then
-    ufw --force enable
-  else
-    yellow "Firewall enable skipped."
-  fi
+apt-get install -y docker.io docker-compose docker-compose-v2 || apt-get install -y docker.io docker-compose
+systemctl enable --now docker
+docker --version || true
 }
 
 collect_install_details() {
-  logo
-  bold "GTX Panel configuration"
-  line
+logo
+bold "GTX Panel configuration"
+line
 
-  GTX_INSTALL_DIR=$(ask "Install directory" "$GTX_INSTALL_DIR_DEFAULT")
-  GTX_PANEL_REPO=$(ask "GTX Panel repository" "$GTX_REPO_DEFAULT")
-  GTX_PANEL_PORT=$(ask "Panel internal port" "$GTX_PORT_DEFAULT")
-  GTX_PANEL_DOMAIN=$(ask "Panel domain or IP" "${GTX_PUBLIC_IP:-127.0.0.1}")
-  GTX_ADMIN_EMAIL=$(ask "Admin email" "admin@gtxpanel.local")
+GTX_INSTALL_DIR=$(ask "Install directory" "$GTX_INSTALL_DIR_DEFAULT")
+GTX_PANEL_REPO=$(ask "GTX Panel repository" "$GTX_REPO_DEFAULT")
+GTX_PANEL_PORT=$(ask "Panel internal port" "$GTX_PORT_DEFAULT")
+GTX_PANEL_DOMAIN=$(ask "Panel domain or IP" "${GTX_PUBLIC_IP:-127.0.0.1}")
+GTX_ADMIN_EMAIL=$(ask "Admin email" "[admin@gtxpanel.local](mailto:admin@gtxpanel.local)")
 
-  while [[ -z "$GTX_ADMIN_PASSWORD" ]]; do
-    GTX_ADMIN_PASSWORD=$(ask_secret "Admin password")
-    if [[ ${#GTX_ADMIN_PASSWORD} -lt 8 ]]; then
-      red "Password must be at least 8 characters."
-      GTX_ADMIN_PASSWORD=""
-    fi
-  done
+while [[ -z "$GTX_ADMIN_PASSWORD" ]]; do
+GTX_ADMIN_PASSWORD=$(ask_secret "Admin password")
+if [[ ${#GTX_ADMIN_PASSWORD} -lt 8 ]]; then
+red "Password must be at least 8 characters."
+GTX_ADMIN_PASSWORD=""
+fi
+done
 
-  echo ""
-  echo "Database mode:"
-  echo "1) SQLite (easy/testing)"
-  echo "2) PostgreSQL placeholder"
-  local db_choice
-  read -rp "Choose [1]: " db_choice
+echo
+echo "SSL mode:"
+echo "1) Direct port only"
+echo "2) Nginx reverse proxy HTTP"
+echo "3) Let's Encrypt SSL"
+read -rp "Choose [2]: " ssl_choice
 
-  case "${db_choice:-1}" in
-    1) GTX_DB_MODE="sqlite" ;;
-    2) GTX_DB_MODE="postgres" ;;
-    *) GTX_DB_MODE="sqlite" ;;
-  esac
+case "${ssl_choice:-2}" in
+1) GTX_SSL_MODE="none" ;;
+2) GTX_SSL_MODE="nginx" ;;
+3) GTX_SSL_MODE="letsencrypt" ;;
+*) GTX_SSL_MODE="nginx" ;;
+esac
 
-  echo ""
-  echo "SSL mode:"
-  echo "1) Direct port only"
-  echo "2) Nginx reverse proxy HTTP only"
-  echo "3) Let's Encrypt SSL"
-  local ssl_choice
-  read -rp "Choose [2]: " ssl_choice
+GTX_LICENSE_SERVER_URL=$(ask "License server URL" "http://127.0.0.1:8080")
 
-  case "${ssl_choice:-2}" in
-    1) GTX_SSL_MODE="none" ;;
-    2) GTX_SSL_MODE="nginx" ;;
-    3) GTX_SSL_MODE="letsencrypt" ;;
-    *) GTX_SSL_MODE="nginx" ;;
-  esac
-
-  echo ""
-  GTX_LICENSE_SERVER_URL=$(ask "License server URL for panel activation page" "http://127.0.0.1:8080")
-
-  echo ""
-  if confirm "Is GTX-panel repository private?"; then
-    GTX_PRIVATE_REPO="yes"
-    GTX_GITHUB_TOKEN=$(ask_secret "GitHub Personal Access Token with repo read access")
-  fi
+if confirm "Is GTX-panel repository private?"; then
+GTX_PRIVATE_REPO="yes"
+GTX_GITHUB_TOKEN=$(ask_secret "GitHub Personal Access Token")
+fi
 }
 
 clone_panel() {
-  logo
-  bold "Downloading GTX Panel"
-  line
+logo
+bold "Downloading GTX Panel"
+line
 
-  mkdir -p "$(dirname "$GTX_INSTALL_DIR")"
+mkdir -p "$(dirname "$GTX_INSTALL_DIR")"
 
-  if [[ -d "$GTX_INSTALL_DIR/.git" ]]; then
-    yellow "Existing installation found. Pulling latest changes..."
-    cd "$GTX_INSTALL_DIR"
-    git pull --ff-only || true
-    return 0
-  fi
+if [[ -e "$GTX_INSTALL_DIR" ]]; then
+local backup="${GTX_INSTALL_DIR}.backup.$(date +%s)"
+yellow "Install dir exists. Moving to $backup"
+mv "$GTX_INSTALL_DIR" "$backup"
+fi
 
-  if [[ -e "$GTX_INSTALL_DIR" ]]; then
-    local backup="${GTX_INSTALL_DIR}.backup.$(date +%s)"
-    yellow "Install dir exists. Moving to $backup"
-    mv "$GTX_INSTALL_DIR" "$backup"
-  fi
+if [[ "$GTX_PRIVATE_REPO" == "yes" ]]; then
+clean_url="${GTX_PANEL_REPO#https://}"
+git clone "https://${GTX_GITHUB_TOKEN}@${clean_url}" "$GTX_INSTALL_DIR"
+else
+git clone "$GTX_PANEL_REPO" "$GTX_INSTALL_DIR"
+fi
 
-  if [[ "$GTX_PRIVATE_REPO" == "yes" ]]; then
-    local clean_url token_url
-    clean_url="${GTX_PANEL_REPO#https://}"
-    token_url="https://${GTX_GITHUB_TOKEN}@${clean_url}"
-    git clone "$token_url" "$GTX_INSTALL_DIR"
-  else
-    git clone "$GTX_PANEL_REPO" "$GTX_INSTALL_DIR"
-  fi
+green "GTX Panel downloaded."
 }
 
 write_env_files() {
-  logo
-  bold "Writing environment files"
-  line
+logo
+bold "Writing environment files"
+line
 
-  local app_url="http://$GTX_PANEL_DOMAIN"
+local app_url="http://$GTX_PANEL_DOMAIN"
+if [[ "$GTX_SSL_MODE" == "letsencrypt" ]]; then
+app_url="https://$GTX_PANEL_DOMAIN"
+fi
 
-  if [[ "$GTX_SSL_MODE" == "letsencrypt" ]]; then
-    app_url="https://$GTX_PANEL_DOMAIN"
-  fi
-
-  cat > "$GTX_INSTALL_DIR/.env" <<EOFENV
+cat > "$GTX_INSTALL_DIR/.env" <<EOF
 APP_NAME="GTX Panel"
 APP_URL="$app_url"
 NODE_ENV="production"
@@ -423,139 +275,99 @@ REDIS_URL="redis://127.0.0.1:6379"
 LICENSE_REQUIRED="true"
 LICENSE_ACTIVATED="false"
 LICENSE_SERVER_URL="$GTX_LICENSE_SERVER_URL"
-EOFENV
+EOF
 
-  if [[ -d "$GTX_INSTALL_DIR/server" ]]; then
-    local db_url="file:./dev.db"
-
-    if [[ "$GTX_DB_MODE" == "postgres" ]]; then
-      db_url="postgresql://gtx_panel:password@127.0.0.1:5432/gtx_panel"
-    fi
-
-    cat > "$GTX_INSTALL_DIR/server/.env" <<EOFENV
+if [[ -d "$GTX_INSTALL_DIR/server" ]]; then
+cat > "$GTX_INSTALL_DIR/server/.env" <<EOF
 APP_NAME="GTX Panel"
 APP_URL="$app_url"
 NODE_ENV="production"
 PORT="$GTX_PANEL_PORT"
-DATABASE_URL="$db_url"
+DATABASE_URL="file:./dev.db"
 REDIS_URL="redis://127.0.0.1:6379"
 ADMIN_EMAIL="$GTX_ADMIN_EMAIL"
 ADMIN_PASSWORD="$GTX_ADMIN_PASSWORD"
 LICENSE_REQUIRED="true"
 LICENSE_ACTIVATED="false"
 LICENSE_SERVER_URL="$GTX_LICENSE_SERVER_URL"
-EOFENV
-  fi
+EOF
+fi
 
-  if [[ -d "$GTX_INSTALL_DIR/client" ]]; then
-    cat > "$GTX_INSTALL_DIR/client/.env" <<EOFENV
+if [[ -d "$GTX_INSTALL_DIR/client" ]]; then
+cat > "$GTX_INSTALL_DIR/client/.env" <<EOF
 VITE_APP_NAME="GTX Panel"
 VITE_API_URL="$app_url"
 VITE_LICENSE_REQUIRED="true"
-EOFENV
-  fi
+EOF
+fi
 
-  chmod 600 "$GTX_INSTALL_DIR/.env" || true
-  chmod 600 "$GTX_INSTALL_DIR/server/.env" 2>/dev/null || true
-
-  green "Environment files created."
+chmod 600 "$GTX_INSTALL_DIR/.env" || true
+chmod 600 "$GTX_INSTALL_DIR/server/.env" 2>/dev/null || true
 }
 
 npm_clean_install_here() {
-  rm -rf node_modules
-  rm -f package-lock.json
-
-  npm cache clean --force || true
-
-  if [[ -f package.json ]]; then
-    npm install --no-package-lock
-  fi
+rm -rf node_modules
+rm -f package-lock.json
+npm cache clean --force || true
+npm install --no-package-lock
 }
 
 install_panel_dependencies() {
-  logo
-  bold "Installing project dependencies"
-  line
+logo
+bold "Installing project dependencies"
+line
 
-  cd "$GTX_INSTALL_DIR"
-  if [[ -f package.json ]]; then
-    npm_clean_install_here
-  fi
+cd "$GTX_INSTALL_DIR"
+[[ -f package.json ]] && npm_clean_install_here
 
-  if [[ -d server && -f server/package.json ]]; then
-    cd "$GTX_INSTALL_DIR/server"
-    npm_clean_install_here
-  fi
+if [[ -d server && -f server/package.json ]]; then
+cd "$GTX_INSTALL_DIR/server"
+npm_clean_install_here
+fi
 
-  if [[ -d client && -f client/package.json ]]; then
-    cd "$GTX_INSTALL_DIR/client"
-    npm_clean_install_here
-  fi
-
-  green "Project dependencies installed."
+if [[ -d client && -f client/package.json ]]; then
+cd "$GTX_INSTALL_DIR/client"
+npm_clean_install_here
+fi
 }
 
 run_database_tasks() {
-  logo
-  bold "Running database tasks"
-  line
+logo
+bold "Running database tasks"
+line
 
-  if [[ -d "$GTX_INSTALL_DIR/server" && -f "$GTX_INSTALL_DIR/server/package.json" ]]; then
-    cd "$GTX_INSTALL_DIR/server"
-
-    if [[ -f prisma/schema.prisma ]]; then
-      npx prisma generate || true
-      npx prisma migrate deploy || npx prisma db push || true
-
-      if [[ -f prisma/seed.ts ]]; then
-        npx prisma db seed || true
-      fi
-    fi
-  fi
+if [[ -d "$GTX_INSTALL_DIR/server" ]]; then
+cd "$GTX_INSTALL_DIR/server"
+if [[ -f prisma/schema.prisma ]]; then
+npx prisma generate || true
+npx prisma db push || true
+npx prisma db seed || true
+fi
+fi
 }
 
 build_panel() {
-  logo
-  bold "Building GTX Panel"
-  line
+logo
+bold "Building GTX Panel"
+line
 
-  if [[ "$GTX_RUN_NPM_BUILD" != "yes" ]]; then
-    yellow "Build skipped."
-    return 0
-  fi
+if [[ -d "$GTX_INSTALL_DIR/client" ]]; then
+cd "$GTX_INSTALL_DIR/client"
+npm run build || yellow "Client build failed, continuing."
+fi
 
-  if [[ -d "$GTX_INSTALL_DIR/client" && -f "$GTX_INSTALL_DIR/client/package.json" ]]; then
-    cd "$GTX_INSTALL_DIR/client"
-    npm run build || yellow "Client build failed or no build script. Continuing."
-  fi
-
-  if [[ -d "$GTX_INSTALL_DIR/server" && -f "$GTX_INSTALL_DIR/server/package.json" ]]; then
-    cd "$GTX_INSTALL_DIR/server"
-    npm run build || yellow "Server build failed or no build script. Continuing."
-  fi
+if [[ -d "$GTX_INSTALL_DIR/server" ]]; then
+cd "$GTX_INSTALL_DIR/server"
+npm run build || yellow "Server build failed, continuing."
+fi
 }
 
-find_start_command() {
-  local wd="$1"
+create_service() {
+logo
+bold "Creating systemd service"
+line
 
-  if [[ -f "$wd/server/package.json" ]]; then
-    echo "cd $wd/server && npm start"
-  elif [[ -f "$wd/package.json" ]]; then
-    echo "cd $wd && npm start"
-  else
-    echo "cd $wd && node server.js"
-  fi
-}
-
-create_systemd_service() {
-  logo
-  bold "Creating systemd service"
-  line
-
-  local start_cmd
-  start_cmd=$(find_start_command "$GTX_INSTALL_DIR")
-
-  cat > "/etc/systemd/system/$GTX_SERVICE.service" <<EOFSVC
+cat > "/etc/systemd/system/$GTX_SERVICE.service" <<EOF
 [Unit]
 Description=GTX Panel
 After=network.target redis-server.service docker.service
@@ -565,7 +377,7 @@ Wants=redis-server.service docker.service
 Type=simple
 User=root
 WorkingDirectory=$GTX_INSTALL_DIR
-ExecStart=/bin/bash -lc '$start_cmd'
+ExecStart=/bin/bash -lc 'cd $GTX_INSTALL_DIR/server && npm start'
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
@@ -575,299 +387,171 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOFSVC
+EOF
 
-  systemctl daemon-reload
-  systemctl enable "$GTX_SERVICE"
-  systemctl restart "$GTX_SERVICE" || true
-
-  sleep 2
-  systemctl status "$GTX_SERVICE" --no-pager || true
+systemctl daemon-reload
+systemctl enable "$GTX_SERVICE"
+systemctl restart "$GTX_SERVICE" || true
+sleep 3
+systemctl status "$GTX_SERVICE" --no-pager || true
 }
 
 setup_nginx() {
-  if [[ "$GTX_SSL_MODE" == "none" ]]; then
-    return 0
-  fi
+if [[ "$GTX_SSL_MODE" == "none" ]]; then
+return 0
+fi
 
-  logo
-  bold "Configuring Nginx"
-  line
+logo
+bold "Configuring Nginx"
+line
 
-  cat > /etc/nginx/sites-available/gtx-panel <<EOFNGINX
+cat > /etc/nginx/sites-available/gtx-panel <<EOF
 server {
-    listen 80;
-    server_name $GTX_PANEL_DOMAIN;
+listen 80;
+server_name $GTX_PANEL_DOMAIN;
 
-    client_max_body_size 100m;
+```
+client_max_body_size 100m;
 
-    location / {
-        proxy_pass http://127.0.0.1:$GTX_PANEL_PORT;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
+location / {
+    proxy_pass http://127.0.0.1:$GTX_PANEL_PORT;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_cache_bypass \$http_upgrade;
 }
-EOFNGINX
+```
 
-  ln -sf /etc/nginx/sites-available/gtx-panel /etc/nginx/sites-enabled/gtx-panel
-  rm -f /etc/nginx/sites-enabled/default
+}
+EOF
 
-  nginx -t
-  systemctl reload nginx
+ln -sf /etc/nginx/sites-available/gtx-panel /etc/nginx/sites-enabled/gtx-panel
+rm -f /etc/nginx/sites-enabled/default
+
+nginx -t
+systemctl reload nginx
 }
 
-setup_letsencrypt() {
-  if [[ "$GTX_SSL_MODE" != "letsencrypt" ]]; then
-    return 0
-  fi
+setup_ssl() {
+if [[ "$GTX_SSL_MODE" != "letsencrypt" ]]; then
+return 0
+fi
 
-  logo
-  bold "Installing Let's Encrypt SSL"
-  line
+logo
+bold "Installing SSL"
+line
 
-  DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx
+apt-get install -y certbot python3-certbot-nginx
+certbot --nginx -d "$GTX_PANEL_DOMAIN" --non-interactive --agree-tos -m "$GTX_ADMIN_EMAIL" --redirect || yellow "SSL failed."
+}
 
-  certbot --nginx -d "$GTX_PANEL_DOMAIN" \
-    --non-interactive \
-    --agree-tos \
-    -m "$GTX_ADMIN_EMAIL" \
-    --redirect \
-    || yellow "SSL failed. Check DNS and try certbot manually."
+setup_firewall() {
+logo
+bold "Firewall setup"
+line
+
+ufw allow OpenSSH || true
+ufw allow 80/tcp || true
+ufw allow 443/tcp || true
+ufw allow "$GTX_PANEL_PORT/tcp" || true
+
+if confirm "Enable UFW firewall now?"; then
+ufw --force enable
+fi
 }
 
 finish_screen() {
-  logo
-  green "GTX Panel installation completed!"
-  line
+logo
+green "GTX Panel installation completed!"
+line
 
-  local url="http://$GTX_PANEL_DOMAIN"
+local url="http://$GTX_PANEL_DOMAIN"
+if [[ "$GTX_SSL_MODE" == "letsencrypt" ]]; then
+url="https://$GTX_PANEL_DOMAIN"
+fi
 
-  if [[ "$GTX_SSL_MODE" == "letsencrypt" ]]; then
-    url="https://$GTX_PANEL_DOMAIN"
-  fi
-
-  echo "Panel URL:"
-  echo "$url"
-
-  echo ""
-  echo "Internal Port:"
-  echo "$GTX_PANEL_PORT"
-
-  echo ""
-  echo "Install Dir:"
-  echo "$GTX_INSTALL_DIR"
-
-  echo ""
-  echo "Systemd Service:"
-  echo "$GTX_SERVICE"
-
-  echo ""
-  echo "Log File:"
-  echo "$GTX_LOG_FILE"
-
-  echo ""
-  yellow "License Activation Required"
-  echo "Open the panel in browser."
-  echo "You should be redirected to:"
-  echo "/activate-license"
-  echo ""
-  echo "Enter your GTX License Key there."
-
-  echo ""
-  echo "Useful commands:"
-  echo "systemctl status $GTX_SERVICE"
-  echo "journalctl -u $GTX_SERVICE -f"
-  echo "systemctl restart $GTX_SERVICE"
-  line
+echo "Panel URL: $url"
+echo "Internal Port: $GTX_PANEL_PORT"
+echo "Install Dir: $GTX_INSTALL_DIR"
+echo "Service: $GTX_SERVICE"
+echo "Log File: $GTX_LOG_FILE"
+echo
+yellow "License Activation Required"
+echo "Open the panel. It should redirect to /activate-license"
+echo
+echo "Commands:"
+echo "systemctl status $GTX_SERVICE"
+echo "journalctl -u $GTX_SERVICE -f"
+echo "systemctl restart $GTX_SERVICE"
+line
 }
 
 install_all() {
-  require_root
-  check_os
-  system_report
-  preflight_checks
-  collect_install_details
-  install_base_packages
-  install_nodejs
-  install_docker
-  clone_panel
-  write_env_files
-  install_panel_dependencies
-  run_database_tasks
-  build_panel
-  create_systemd_service
-  setup_nginx
-  setup_letsencrypt
-  setup_firewall
-  finish_screen
+require_root
+check_os
+system_report
+preflight_checks
+install_base_packages
+install_nodejs
+install_docker
+collect_install_details
+clone_panel
+write_env_files
+install_panel_dependencies
+run_database_tasks
+build_panel
+create_service
+setup_nginx
+setup_ssl
+setup_firewall
+finish_screen
 }
 
-update_panel() {
-  require_root
-  logo
-  bold "Updating GTX Panel"
-  line
-
-  if [[ ! -d "$GTX_INSTALL_DIR_DEFAULT/.git" ]]; then
-    GTX_INSTALL_DIR=$(ask "Install directory" "$GTX_INSTALL_DIR_DEFAULT")
-  fi
-
-  if [[ ! -d "$GTX_INSTALL_DIR/.git" ]]; then
-    red "No git installation found in $GTX_INSTALL_DIR"
-    exit 1
-  fi
-
-  cd "$GTX_INSTALL_DIR"
-  git pull
-
-  install_panel_dependencies
-  run_database_tasks
-  build_panel
-
-  systemctl restart "$GTX_SERVICE" || true
-
-  green "Update complete."
+status_panel() {
+logo
+systemctl status "$GTX_SERVICE" --no-pager || true
+ss -tulpn | grep -E ":80|:443|:$GTX_PANEL_PORT" || true
 }
 
 uninstall_panel() {
-  require_root
-  logo
-  red "GTX Panel uninstall"
-  line
-
-  GTX_INSTALL_DIR=$(ask "Install directory" "$GTX_INSTALL_DIR_DEFAULT")
-
-  if ! confirm "This will remove service and files at $GTX_INSTALL_DIR. Continue?"; then
-    exit 0
-  fi
-
-  systemctl stop "$GTX_SERVICE" 2>/dev/null || true
-  systemctl disable "$GTX_SERVICE" 2>/dev/null || true
-
-  rm -f "/etc/systemd/system/$GTX_SERVICE.service"
-  systemctl daemon-reload
-
-  rm -f /etc/nginx/sites-enabled/gtx-panel /etc/nginx/sites-available/gtx-panel
-  systemctl reload nginx 2>/dev/null || true
-
-  local backup="${GTX_INSTALL_DIR}.removed.$(date +%s)"
-
-  if [[ -e "$GTX_INSTALL_DIR" ]]; then
-    mv "$GTX_INSTALL_DIR" "$backup"
-    yellow "Files moved to: $backup"
-  fi
-
-  green "Uninstall complete."
+require_root
+logo
+if ! confirm "Remove GTX Panel?"; then exit 0; fi
+systemctl stop "$GTX_SERVICE" 2>/dev/null || true
+systemctl disable "$GTX_SERVICE" 2>/dev/null || true
+rm -f "/etc/systemd/system/$GTX_SERVICE.service"
+rm -f /etc/nginx/sites-enabled/gtx-panel /etc/nginx/sites-available/gtx-panel
+systemctl daemon-reload
+systemctl reload nginx 2>/dev/null || true
+mv "$GTX_INSTALL_DIR_DEFAULT" "${GTX_INSTALL_DIR_DEFAULT}.removed.$(date +%s)" 2>/dev/null || true
+green "Uninstalled."
 }
 
-repair_panel() {
-  require_root
-  logo
-  bold "Repair GTX Panel"
-  line
+menu() {
+while true; do
+logo
+echo "1) Install GTX Panel"
+echo "2) Show status"
+echo "3) Uninstall GTX Panel"
+echo "4) Exit"
+echo
+read -rp "Select option: " opt
 
-  GTX_INSTALL_DIR=$(ask "Install directory" "$GTX_INSTALL_DIR_DEFAULT")
-
-  install_base_packages
-  install_nodejs
-  install_docker
-  install_panel_dependencies
-  run_database_tasks
-  build_panel
-  create_systemd_service
-
-  green "Repair complete."
-}
-
-show_status() {
-  logo
-  bold "GTX Panel status"
-  line
-
-  systemctl status "$GTX_SERVICE" --no-pager || true
-
-  echo ""
-  docker --version 2>/dev/null || true
-  node -v 2>/dev/null || true
-  npm -v 2>/dev/null || true
-  nginx -v 2>&1 || true
-  redis-cli ping 2>/dev/null || true
-
-  echo ""
-  ss -tulpn | grep -E ":80|:443|:$GTX_PANEL_PORT" || true
-
-  pause
-}
-
-main_menu() {
-  while true; do
-    logo
-    echo "1) Install GTX Panel"
-    echo "2) Update GTX Panel"
-    echo "3) Repair GTX Panel"
-    echo "4) Uninstall GTX Panel"
-    echo "5) Install dependencies only"
-    echo "6) Install Docker only"
-    echo "7) Show status"
-    echo "8) Exit"
-    echo ""
-    read -rp "Select option: " opt
-
-    case "$opt" in
-      1) install_all; pause ;;
-      2) update_panel; pause ;;
-      3) repair_panel; pause ;;
-      4) uninstall_panel; pause ;;
-      5) require_root; check_os; install_base_packages; install_nodejs; pause ;;
-      6) require_root; check_os; install_docker; pause ;;
-      7) show_status ;;
-      8) exit 0 ;;
-      *) red "Invalid option"; sleep 1 ;;
-    esac
-  done
-}
-
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --install)
-        GTX_NONINTERACTIVE="yes"
-        shift
-        ;;
-      --dir)
-        GTX_INSTALL_DIR="$2"
-        shift 2
-        ;;
-      --repo)
-        GTX_PANEL_REPO="$2"
-        shift 2
-        ;;
-      --domain)
-        GTX_PANEL_DOMAIN="$2"
-        shift 2
-        ;;
-      --port)
-        GTX_PANEL_PORT="$2"
-        shift 2
-        ;;
-      --help|-h)
-        echo "GTX Panel Installer"
-        echo "Usage: bash install.sh"
-        exit 0
-        ;;
-      *)
-        shift
-        ;;
-    esac
-  done
-}
-
-parse_args "$@"
-main_menu
 ```
+case "$opt" in
+  1) install_all; read -rp "Press Enter..." _ ;;
+  2) status_panel; read -rp "Press Enter..." _ ;;
+  3) uninstall_panel; read -rp "Press Enter..." _ ;;
+  4) exit 0 ;;
+  *) red "Invalid option"; sleep 1 ;;
+esac
+```
+
+done
+}
+
+menu
